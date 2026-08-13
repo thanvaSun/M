@@ -1,0 +1,167 @@
+local player = game.Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+-- ===== ตั้งค่า Aim Assist =====
+local AIM_ASSIST_RADIUS = 10
+local AIM_ASSIST_STRENGTH = 1
+local MAX_DISTANCE = 5000
+
+local assistEnabled = false
+local locked = false
+
+-- หาผู้เล่นที่ใกล้เคอร์เซอร์ที่สุด
+local function findBestTarget()
+    local bestTarget = nil
+    local bestAngle = AIM_ASSIST_RADIUS
+    local screenCenter = camera.ViewportSize / 2
+
+    for _, otherPlayer in ipairs(game.Players:GetPlayers()) do
+        if otherPlayer ~= player and otherPlayer.Character then
+            local char = otherPlayer.Character
+            local head = char:FindFirstChild("Head")
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+
+            if head and humanoid and humanoid.Health > 0 then
+                local distance = (head.Position - camera.CFrame.Position).Magnitude
+                if distance <= MAX_DISTANCE then
+                    local screenPos, onScreen = camera:WorldToViewportPoint(head.Position)
+                    if onScreen then
+                        local screenPoint = Vector2.new(screenPos.X, screenPos.Y)
+                        local pixelDist = (screenPoint - screenCenter).Magnitude
+
+                        if pixelDist < bestAngle * 20 then
+                            local rayParams = RaycastParams.new()
+                            rayParams.FilterDescendantsInstances = {player.Character}
+                            rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+                            local rayResult = workspace:Raycast(camera.CFrame.Position, (head.Position - camera.CFrame.Position), rayParams)
+                            if rayResult and rayResult.Instance:IsDescendantOf(char) then
+                                bestAngle = pixelDist / 20
+                                bestTarget = head
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return bestTarget
+end
+
+RunService.RenderStepped:Connect(function(dt)
+    if not assistEnabled then return end -- สวิตช์ปิด = ไม่ทำงานเลย
+
+    local target = findBestTarget()
+    if not target then return end
+
+    local currentLook = camera.CFrame.LookVector
+    local directionToTarget = (target.Position - camera.CFrame.Position).Unit
+    local newLook = currentLook:Lerp(directionToTarget, AIM_ASSIST_STRENGTH)
+    camera.CFrame = CFrame.new(camera.CFrame.Position, camera.CFrame.Position + newLook)
+end)
+
+-- ===== UI: สวิตช์เปิด/ปิดระบบ =====
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AimAssistToggleGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local container = Instance.new("Frame")
+container.Size = UDim2.new(0, 70, 0, 36)
+container.Position = UDim2.new(0, 30, 0, 30)
+container.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+container.Parent = screenGui
+
+local containerCorner = Instance.new("UICorner")
+containerCorner.CornerRadius = UDim.new(0, 12)
+containerCorner.Parent = container
+
+local switchTrack = Instance.new("TextButton")
+switchTrack.Size = UDim2.new(0, 44, 0, 22)
+switchTrack.Position = UDim2.new(0.5, -22, 0.5, -11)
+switchTrack.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+switchTrack.Text = ""
+switchTrack.AutoButtonColor = false
+switchTrack.Parent = container
+
+local trackCorner = Instance.new("UICorner")
+trackCorner.CornerRadius = UDim.new(1, 0)
+trackCorner.Parent = switchTrack
+
+local knob = Instance.new("Frame")
+knob.Size = UDim2.new(0, 18, 0, 18)
+knob.Position = UDim2.new(0, 2, 0, 2)
+knob.BackgroundColor3 = Color3.new(1, 1, 1)
+knob.Parent = switchTrack
+
+local knobCorner = Instance.new("UICorner")
+knobCorner.CornerRadius = UDim.new(1, 0)
+knobCorner.Parent = knob
+
+local lockBtn = Instance.new("TextButton")
+lockBtn.Size = UDim2.new(0, 16, 0, 16)
+lockBtn.Position = UDim2.new(1, -16, 0, -6)
+lockBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+lockBtn.Text = "🔓"
+lockBtn.TextSize = 10
+lockBtn.Font = Enum.Font.Gotham
+lockBtn.TextColor3 = Color3.new(1, 1, 1)
+lockBtn.ZIndex = 2
+lockBtn.Parent = container
+
+local lockCorner = Instance.new("UICorner")
+lockCorner.CornerRadius = UDim.new(1, 0)
+lockCorner.Parent = lockBtn
+
+local function setSwitch(state)
+    assistEnabled = state
+    if assistEnabled then
+        switchTrack.BackgroundColor3 = Color3.fromRGB(30, 120, 255)
+        knob:TweenPosition(UDim2.new(1, -20, 0, 2), "Out", "Quad", 0.15, true)
+    else
+        switchTrack.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+        knob:TweenPosition(UDim2.new(0, 2, 0, 2), "Out", "Quad", 0.15, true)
+    end
+end
+
+switchTrack.MouseButton1Click:Connect(function()
+    setSwitch(not assistEnabled)
+end)
+
+lockBtn.MouseButton1Click:Connect(function()
+    locked = not locked
+    lockBtn.Text = locked and "🔒" or "🔓"
+end)
+
+-- ลากขยับ UI สวิตช์
+local dragging = false
+local dragStartPos = nil
+local frameStartPos = nil
+
+container.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStartPos = input.Position
+        frameStartPos = container.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        if locked then return end
+        local delta = input.Position - dragStartPos
+        container.Position = UDim2.new(
+            frameStartPos.X.Scale, frameStartPos.X.Offset + delta.X,
+            frameStartPos.Y.Scale, frameStartPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
