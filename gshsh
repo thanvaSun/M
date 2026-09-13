@@ -1,0 +1,154 @@
+-- CombinedUtilityGUI.lua
+-- วางเป็น LocalScript ไว้ใน StarterPlayerScripts
+-- รวม: ปุ่มลดกราฟิก (ลากได้/ล็อกได้) + ปุ่มเปิดรายชื่อผู้เล่นเพื่อเทเลพอร์ต (เปิดเป็นกรอบใหญ่กลางจอ)
+
+local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- ================= ScreenGui หลัก =================
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "CombinedUtilityGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+-- ================= แถบควบคุมเล็ก (ลากได้) =================
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 210, 0, 50)
+mainFrame.Position = UDim2.new(1, -230, 0, 20)
+mainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Parent = screenGui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 10)
+mainCorner.Parent = mainFrame
+
+local listLayout = Instance.new("UIListLayout")
+listLayout.FillDirection = Enum.FillDirection.Horizontal
+listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+listLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+listLayout.Padding = UDim.new(0, 6)
+listLayout.Parent = mainFrame
+
+local padding = Instance.new("UIPadding")
+padding.PaddingLeft = UDim.new(0, 6)
+padding.PaddingRight = UDim.new(0, 6)
+padding.Parent = mainFrame
+
+-- ปุ่มเปิด-ปิดกราฟิก
+local graphicsButton = Instance.new("TextButton")
+graphicsButton.Name = "GraphicsButton"
+graphicsButton.Size = UDim2.new(0, 80, 0, 38)
+graphicsButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+graphicsButton.BorderSizePixel = 0
+graphicsButton.Text = "กราฟิก"
+graphicsButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+graphicsButton.Font = Enum.Font.GothamBold
+graphicsButton.TextSize = 15
+graphicsButton.Parent = mainFrame
+
+local graphicsCorner = Instance.new("UICorner")
+graphicsCorner.CornerRadius = UDim.new(0, 8)
+graphicsCorner.Parent = graphicsButton
+
+-- ปุ่มเปิดรายชื่อผู้เล่น
+local playersButton = Instance.new("TextButton")
+playersButton.Name = "PlayersButton"
+playersButton.Size = UDim2.new(0, 80, 0, 38)
+playersButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+playersButton.BorderSizePixel = 0
+playersButton.Text = "ผู้เล่น"
+playersButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+playersButton.Font = Enum.Font.GothamBold
+playersButton.TextSize = 15
+playersButton.Parent = mainFrame
+
+local playersCorner = Instance.new("UICorner")
+playersCorner.CornerRadius = UDim.new(0, 8)
+playersCorner.Parent = playersButton
+
+-- ปุ่มล็อก/ปลดล็อกตำแหน่ง
+local lockButton = Instance.new("TextButton")
+lockButton.Name = "LockButton"
+lockButton.Size = UDim2.new(0, 38, 0, 38)
+lockButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+lockButton.BorderSizePixel = 0
+lockButton.Text = "🔓"
+lockButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+lockButton.Font = Enum.Font.GothamBold
+lockButton.TextSize = 18
+lockButton.Parent = mainFrame
+
+local lockCorner = Instance.new("UICorner")
+lockCorner.CornerRadius = UDim.new(0, 8)
+lockCorner.Parent = lockButton
+
+-- ================= ระบบลาก (Drag) แถบควบคุม =================
+local isLocked = false
+local dragging = false
+local dragStart = nil
+local startPos = nil
+
+local function updateInput(input)
+	if isLocked then return end
+	local delta = input.Position - dragStart
+	mainFrame.Position = UDim2.new(
+		startPos.X.Scale, startPos.X.Offset + delta.X,
+		startPos.Y.Scale, startPos.Y.Offset + delta.Y
+	)
+end
+
+mainFrame.InputBegan:Connect(function(input)
+	if isLocked then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStart = input.Position
+		startPos = mainFrame.Position
+
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+			end
+		end)
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if dragging and not isLocked then
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			updateInput(input)
+		end
+	end
+end)
+
+lockButton.MouseButton1Click:Connect(function()
+	isLocked = not isLocked
+	lockButton.Text = isLocked and "🔒" or "🔓"
+end)
+
+-- ================= ระบบลดกราฟิก =================
+local originalLighting = {
+	GlobalShadows = Lighting.GlobalShadows,
+	FogEnd = Lighting.FogEnd,
+	Brightness = Lighting.Brightness,
+	Technology = Lighting.Technology,
+	Ambient = Lighting.Ambient,
+	OutdoorAmbient = Lighting.OutdoorAmbient,
+}
+
+local originalPartData = {}
+local hiddenInstances = {}
+
+local function applyPotatoGraphics()
+	Lighting.GlobalShadows = false
+	Lighting.FogEnd = 100000
+	Lighting.Technology = Enum.Technology.Compatibility
+	Lighting.Brightness = 1
+	Lighting.Ambient = Color3.fromRGB(150, 150, 15
