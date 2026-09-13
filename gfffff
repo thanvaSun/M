@@ -1,0 +1,343 @@
+local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "CombinedUtilityGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 210, 0, 50)
+mainFrame.Position = UDim2.new(1, -230, 0, 20)
+mainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Parent = screenGui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 10)
+mainCorner.Parent = mainFrame
+
+local listLayout = Instance.new("UIListLayout")
+listLayout.FillDirection = Enum.FillDirection.Horizontal
+listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+listLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+listLayout.Padding = UDim.new(0, 6)
+listLayout.Parent = mainFrame
+
+local padding = Instance.new("UIPadding")
+padding.PaddingLeft = UDim.new(0, 6)
+padding.PaddingRight = UDim.new(0, 6)
+padding.Parent = mainFrame
+
+local graphicsButton = Instance.new("TextButton")
+graphicsButton.Name = "GraphicsButton"
+graphicsButton.Size = UDim2.new(0, 80, 0, 38)
+graphicsButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+graphicsButton.BorderSizePixel = 0
+graphicsButton.Text = "เธเธฃเธฒเธเธดเธ"
+graphicsButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+graphicsButton.Font = Enum.Font.GothamBold
+graphicsButton.TextSize = 15
+graphicsButton.Parent = mainFrame
+
+local graphicsCorner = Instance.new("UICorner")
+graphicsCorner.CornerRadius = UDim.new(0, 8)
+graphicsCorner.Parent = graphicsButton
+
+local playersButton = Instance.new("TextButton")
+playersButton.Name = "PlayersButton"
+playersButton.Size = UDim2.new(0, 80, 0, 38)
+playersButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+playersButton.BorderSizePixel = 0
+playersButton.Text = "เธเธนเนเน€เธฅเนเธ"
+playersButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+playersButton.Font = Enum.Font.GothamBold
+playersButton.TextSize = 15
+playersButton.Parent = mainFrame
+
+local playersCorner = Instance.new("UICorner")
+playersCorner.CornerRadius = UDim.new(0, 8)
+playersCorner.Parent = playersButton
+
+local lockButton = Instance.new("TextButton")
+lockButton.Name = "LockButton"
+lockButton.Size = UDim2.new(0, 38, 0, 38)
+lockButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+lockButton.BorderSizePixel = 0
+lockButton.Text = "๐”“"
+lockButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+lockButton.Font = Enum.Font.GothamBold
+lockButton.TextSize = 18
+lockButton.Parent = mainFrame
+
+local lockCorner = Instance.new("UICorner")
+lockCorner.CornerRadius = UDim.new(0, 8)
+lockCorner.Parent = lockButton
+
+local isLocked = false
+local dragging = false
+local dragStart = nil
+local startPos = nil
+
+local function updateInput(input)
+	if isLocked then return end
+	local delta = input.Position - dragStart
+	mainFrame.Position = UDim2.new(
+		startPos.X.Scale, startPos.X.Offset + delta.X,
+		startPos.Y.Scale, startPos.Y.Offset + delta.Y
+	)
+end
+
+mainFrame.InputBegan:Connect(function(input)
+	if isLocked then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStart = input.Position
+		startPos = mainFrame.Position
+
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+			end
+		end)
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if dragging and not isLocked then
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			updateInput(input)
+		end
+	end
+end)
+
+lockButton.MouseButton1Click:Connect(function()
+	isLocked = not isLocked
+	lockButton.Text = isLocked and "๐”’" or "๐”“"
+end)
+
+local originalLighting = {
+	GlobalShadows = Lighting.GlobalShadows,
+	FogEnd = Lighting.FogEnd,
+	Brightness = Lighting.Brightness,
+	Technology = Lighting.Technology,
+	Ambient = Lighting.Ambient,
+	OutdoorAmbient = Lighting.OutdoorAmbient,
+}
+
+local originalPartData = {}
+local hiddenInstances = {}
+
+local function applyPotatoGraphics()
+	Lighting.GlobalShadows = false
+	Lighting.FogEnd = 100000
+	Lighting.Technology = Enum.Technology.Compatibility
+	Lighting.Brightness = 1
+	Lighting.Ambient = Color3.fromRGB(150, 150, 150)
+	Lighting.OutdoorAmbient = Color3.fromRGB(150, 150, 150)
+
+	for _, obj in ipairs(Workspace:GetDescendants()) do
+		if obj:IsA("BasePart") then
+			originalPartData[obj] = {
+				Material = obj.Material,
+				Reflectance = obj.Reflectance,
+				CastShadow = obj.CastShadow,
+			}
+			obj.Material = Enum.Material.SmoothPlastic
+			obj.Reflectance = 0
+			obj.CastShadow = false
+
+		elseif obj:IsA("Decal") or obj:IsA("Texture") then
+			hiddenInstances[obj] = obj.Transparency
+			obj.Transparency = 1
+
+		elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam")
+			or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
+			hiddenInstances[obj] = obj.Enabled
+			obj.Enabled = false
+		end
+	end
+end
+
+local function restoreGraphics()
+	Lighting.GlobalShadows = originalLighting.GlobalShadows
+	Lighting.FogEnd = originalLighting.FogEnd
+	Lighting.Brightness = originalLighting.Brightness
+	Lighting.Technology = originalLighting.Technology
+	Lighting.Ambient = originalLighting.Ambient
+	Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
+
+	for obj, data in pairs(originalPartData) do
+		if obj and obj.Parent then
+			obj.Material = data.Material
+			obj.Reflectance = data.Reflectance
+			obj.CastShadow = data.CastShadow
+		end
+	end
+	originalPartData = {}
+
+	for obj, value in pairs(hiddenInstances) do
+		if obj and obj.Parent then
+			if obj:IsA("Decal") or obj:IsA("Texture") then
+				obj.Transparency = value
+			else
+				obj.Enabled = value
+			end
+		end
+	end
+	hiddenInstances = {}
+end
+
+local isGraphicsOn = false
+
+graphicsButton.MouseButton1Click:Connect(function()
+	isGraphicsOn = not isGraphicsOn
+	if isGraphicsOn then
+		graphicsButton.Text = "เธเธดเธ”"
+		graphicsButton.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+		applyPotatoGraphics()
+	else
+		graphicsButton.Text = "เธเธฃเธฒเธเธดเธ"
+		graphicsButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+		restoreGraphics()
+	end
+end)
+
+local playersPanel = Instance.new("Frame")
+playersPanel.Name = "PlayersPanel"
+playersPanel.Size = UDim2.new(0, 500, 0, 320)
+playersPanel.Position = UDim2.new(0.5, -250, 0.5, -160)
+playersPanel.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+playersPanel.BackgroundTransparency = 0.05
+playersPanel.Visible = false
+playersPanel.Parent = screenGui
+
+local panelCorner = Instance.new("UICorner")
+panelCorner.CornerRadius = UDim.new(0, 12)
+panelCorner.Parent = playersPanel
+
+local headerFrame = Instance.new("Frame")
+headerFrame.Name = "Header"
+headerFrame.Size = UDim2.new(1, 0, 0, 46)
+headerFrame.BackgroundTransparency = 1
+headerFrame.Parent = playersPanel
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, -50, 1, 0)
+titleLabel.Position = UDim2.new(0, 16, 0, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "เน€เธฅเธทเธญเธเธเธนเนเน€เธฅเนเธเน€เธเธทเนเธญเน€เธ—เน€เธฅเธเธญเธฃเนเธ•"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextSize = 18
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Parent = headerFrame
+
+local closeButton = Instance.new("TextButton")
+closeButton.Size = UDim2.new(0, 34, 0, 34)
+closeButton.Position = UDim2.new(1, -42, 0, 6)
+closeButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+closeButton.Text = "โ•"
+closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeButton.Font = Enum.Font.GothamBold
+closeButton.TextSize = 16
+closeButton.Parent = headerFrame
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 8)
+closeCorner.Parent = closeButton
+
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Name = "PlayerScroll"
+scrollFrame.Size = UDim2.new(1, -32, 1, -62)
+scrollFrame.Position = UDim2.new(0, 16, 0, 50)
+scrollFrame.BackgroundTransparency = 1
+scrollFrame.ScrollBarThickness = 5
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+scrollFrame.Parent = playersPanel
+
+local gridLayout = Instance.new("UIGridLayout")
+gridLayout.CellSize = UDim2.new(0, 140, 0, 40)
+gridLayout.CellPadding = UDim2.new(0, 8, 0, 8)
+gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+gridLayout.Parent = scrollFrame
+
+local function teleportTo(targetPlayer)
+	local myCharacter = player.Character
+	local targetCharacter = targetPlayer.Character
+
+	if not myCharacter or not targetCharacter then
+		return
+	end
+
+	local myRoot = myCharacter:FindFirstChild("HumanoidRootPart")
+	local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+
+	if myRoot and targetRoot then
+		myRoot.CFrame = targetRoot.CFrame * CFrame.new(3, 0, 0)
+	end
+end
+
+local function clearPlayerList()
+	for _, child in ipairs(scrollFrame:GetChildren()) do
+		if child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
+end
+
+local function refreshPlayerList()
+	clearPlayerList()
+
+	for _, otherPlayer in ipairs(Players:GetPlayers()) do
+		if otherPlayer ~= player then
+			local playerButton = Instance.new("TextButton")
+			playerButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+			playerButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+			playerButton.Font = Enum.Font.Gotham
+			playerButton.TextSize = 15
+			playerButton.Text = otherPlayer.Name
+			playerButton.Parent = scrollFrame
+
+			local btnCorner = Instance.new("UICorner")
+			btnCorner.CornerRadius = UDim.new(0, 8)
+			btnCorner.Parent = playerButton
+
+			playerButton.MouseButton1Click:Connect(function()
+				teleportTo(otherPlayer)
+				playersPanel.Visible = false
+			end)
+		end
+	end
+end
+
+playersButton.MouseButton1Click:Connect(function()
+	playersPanel.Visible = not playersPanel.Visible
+	if playersPanel.Visible then
+		refreshPlayerList()
+	end
+end)
+
+closeButton.MouseButton1Click:Connect(function()
+	playersPanel.Visible = false
+end)
+
+Players.PlayerAdded:Connect(function()
+	if playersPanel.Visible then
+		refreshPlayerList()
+	end
+end)
+
+Players.PlayerRemoving:Connect(function()
+	if playersPanel.Visible then
+		refreshPlayerList()
+	end
+end)
