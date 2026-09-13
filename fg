@@ -1,0 +1,305 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+-- ===== ตั้งค่า =====
+local settings = {
+    enabled = true,
+    ASSIST_STRENGTH = 0.9,
+    MIN_LOCK_DISTANCE = 5,
+    MAX_LOCK_DISTANCE = 500,
+}
+
+local manualTarget = nil
+
+-- ===== หาผู้เล่นที่ใกล้ที่สุดในระยะที่กำหนด =====
+local function findBestTarget(originPos)
+    local bestTarget = nil
+    local bestDistance = settings.MAX_LOCK_DISTANCE
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character then
+            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+            local humanoid = plr.Character:FindFirstChild("Humanoid")
+            if hrp and humanoid and humanoid.Health > 0 then
+                local distance = (hrp.Position - originPos).Magnitude
+                if distance >= settings.MIN_LOCK_DISTANCE and distance <= bestDistance then
+                    bestDistance = distance
+                    bestTarget = hrp
+                end
+            end
+        end
+    end
+
+    return bestTarget
+end
+
+-- ===== ระบบดึงกล้อง =====
+RunService:BindToRenderStep("AimAssist", Enum.RenderPriority.Camera.Value + 1, function(dt)
+    if not settings.enabled then return end
+
+    local character = player.Character
+    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local targetHRP = nil
+
+    if manualTarget and manualTarget.Character then
+        local mHRP = manualTarget.Character:FindFirstChild("HumanoidRootPart")
+        local mHum = manualTarget.Character:FindFirstChild("Humanoid")
+        if mHRP and mHum and mHum.Health > 0 then
+            local distance = (mHRP.Position - camera.CFrame.Position).Magnitude
+            if distance >= settings.MIN_LOCK_DISTANCE and distance <= settings.MAX_LOCK_DISTANCE then
+                targetHRP = mHRP
+            end
+        end
+    else
+        targetHRP = findBestTarget(camera.CFrame.Position)
+    end
+
+    if not targetHRP then return end
+
+    local currentLook = camera.CFrame.LookVector
+    local toTarget = (targetHRP.Position - camera.CFrame.Position).Unit
+    local blended = currentLook:Lerp(toTarget, settings.ASSIST_STRENGTH)
+
+    camera.CFrame = CFrame.new(camera.CFrame.Position, camera.CFrame.Position + blended)
+end)
+
+-- ================= UI =================
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AimAssistGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local PANEL_WIDTH = 220
+local PANEL_HEIGHT = 480
+local isExpanded = false
+
+-- แถบขีดเดียว
+local toggleBar = Instance.new("TextButton")
+toggleBar.AnchorPoint = Vector2.new(0, 0.5)
+toggleBar.Size = UDim2.new(0, 30, 0, 100)
+toggleBar.Position = UDim2.new(0, 0, 0.5, 0)
+toggleBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+toggleBar.Text = "▶"
+toggleBar.TextColor3 = Color3.new(1, 1, 1)
+toggleBar.TextSize = 20
+toggleBar.Parent = screenGui
+
+local toggleBarScale = Instance.new("UIScale")
+toggleBarScale.Scale = 0.7
+toggleBarScale.Parent = toggleBar
+
+-- กรอบหลัก
+local frame = Instance.new("Frame")
+frame.AnchorPoint = Vector2.new(0, 0.5)
+frame.Size = UDim2.new(0, PANEL_WIDTH, 0, PANEL_HEIGHT)
+frame.Position = UDim2.new(0, -PANEL_WIDTH - 10, 0.5, 0)
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+frame.BackgroundTransparency = 0.1
+frame.ClipsDescendants = true
+frame.Parent = screenGui
+
+local uiScale = Instance.new("UIScale")
+uiScale.Scale = 0.7
+uiScale.Parent = frame
+
+local uiPadding = Instance.new("UIPadding")
+uiPadding.PaddingTop = UDim.new(0, 8)
+uiPadding.PaddingLeft = UDim.new(0, 8)
+uiPadding.PaddingRight = UDim.new(0, 8)
+uiPadding.Parent = frame
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 25)
+title.Position = UDim2.new(0, 0, 0, 0)
+title.Text = "⚙️ Aim Assist"
+title.BackgroundTransparency = 1
+title.TextColor3 = Color3.new(1,1,1)
+title.Font = Enum.Font.SourceSansBold
+title.TextSize = 18
+title.Parent = frame
+
+-- ปุ่มเปิด/ปิด
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(1, 0, 0, 35)
+toggleButton.Position = UDim2.new(0, 0, 0, 30)
+toggleButton.Text = "✅ เปิดใช้งาน"
+toggleButton.BackgroundColor3 = Color3.fromRGB(40, 140, 60)
+toggleButton.TextColor3 = Color3.new(1,1,1)
+toggleButton.Font = Enum.Font.SourceSansBold
+toggleButton.TextSize = 16
+toggleButton.Parent = frame
+
+toggleButton.MouseButton1Click:Connect(function()
+    settings.enabled = not settings.enabled
+    if settings.enabled then
+        toggleButton.Text = "✅ เปิดใช้งาน"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(40, 140, 60)
+    else
+        toggleButton.Text = "⛔ ปิดใช้งาน"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(120, 40, 40)
+    end
+end)
+
+-- ฟังก์ชันสร้างแถวปรับค่า
+local sliderYStart = 75
+local function createSlider(labelText, key, step, minVal, maxVal, yPos)
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(1, 0, 0, 45)
+    container.Position = UDim2.new(0, 0, 0, yPos)
+    container.BackgroundTransparency = 1
+    container.Parent = frame
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 0, 18)
+    label.Text = labelText .. ": " .. tostring(settings[key])
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.new(1,1,1)
+    label.Font = Enum.Font.SourceSans
+    label.TextSize = 14
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = container
+
+    local minusBtn = Instance.new("TextButton")
+    minusBtn.Size = UDim2.new(0, 40, 0, 24)
+    minusBtn.Position = UDim2.new(0, 0, 0, 20)
+    minusBtn.Text = "-"
+    minusBtn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+    minusBtn.TextColor3 = Color3.new(1,1,1)
+    minusBtn.Parent = container
+
+    local plusBtn = Instance.new("TextButton")
+    plusBtn.Size = UDim2.new(0, 40, 0, 24)
+    plusBtn.Position = UDim2.new(0, 48, 0, 20)
+    plusBtn.Text = "+"
+    plusBtn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+    plusBtn.TextColor3 = Color3.new(1,1,1)
+    plusBtn.Parent = container
+
+    local function updateLabel()
+        local val = settings[key]
+        if step < 1 then
+            label.Text = labelText .. ": " .. string.format("%.2f", val)
+        else
+            label.Text = labelText .. ": " .. tostring(val)
+        end
+    end
+
+    minusBtn.MouseButton1Click:Connect(function()
+        settings[key] = math.clamp(settings[key] - step, minVal, maxVal)
+        updateLabel()
+    end)
+
+    plusBtn.MouseButton1Click:Connect(function()
+        settings[key] = math.clamp(settings[key] + step, minVal, maxVal)
+        updateLabel()
+    end)
+end
+
+createSlider("ความแรงดึง", "ASSIST_STRENGTH", 0.05, 0, 1, sliderYStart)
+createSlider("ระยะใกล้สุด", "MIN_LOCK_DISTANCE", 1, 0, 100, sliderYStart + 50)
+createSlider("ระยะไกลสุด", "MAX_LOCK_DISTANCE", 5, 5, 200, sliderYStart + 100)
+
+-- ===== หัวข้อรายชื่อผู้เล่น =====
+local listTitle = Instance.new("TextLabel")
+listTitle.Size = UDim2.new(1, 0, 0, 25)
+listTitle.Position = UDim2.new(0, 0, 0, sliderYStart + 155)
+listTitle.Text = "🎯 เลือกล็อกคนใดคนหนึ่ง"
+listTitle.BackgroundTransparency = 1
+listTitle.TextColor3 = Color3.new(1,1,1)
+listTitle.Font = Enum.Font.SourceSansBold
+listTitle.TextSize = 15
+listTitle.Parent = frame
+
+-- ปุ่ม "อัตโนมัติ"
+local autoButton = Instance.new("TextButton")
+autoButton.Size = UDim2.new(1, 0, 0, 30)
+autoButton.Position = UDim2.new(0, 0, 0, sliderYStart + 185)
+autoButton.Text = "🔄 อัตโนมัติ (ใกล้สุด)"
+autoButton.BackgroundColor3 = Color3.fromRGB(40, 100, 140)
+autoButton.TextColor3 = Color3.new(1,1,1)
+autoButton.Font = Enum.Font.SourceSansBold
+autoButton.TextSize = 14
+autoButton.Parent = frame
+
+local playerButtons = {}
+
+autoButton.MouseButton1Click:Connect(function()
+    manualTarget = nil
+    autoButton.BackgroundColor3 = Color3.fromRGB(40, 160, 200)
+    for _, btn in pairs(playerButtons) do
+        btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    end
+end)
+
+-- ===== กรอบเลื่อนรายชื่อ =====
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Size = UDim2.new(1, 0, 0, PANEL_HEIGHT - (sliderYStart + 225))
+scrollFrame.Position = UDim2.new(0, 0, 0, sliderYStart + 220)
+scrollFrame.BackgroundTransparency = 1
+scrollFrame.BorderSizePixel = 0
+scrollFrame.ScrollBarThickness = 6
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+scrollFrame.Parent = frame
+
+local listLayout = Instance.new("UIListLayout")
+listLayout.Padding = UDim.new(0, 5)
+listLayout.Parent = scrollFrame
+
+local function createPlayerButton(targetPlayer)
+    if targetPlayer == player then return end
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 30)
+    btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Text = targetPlayer.Name
+    btn.Font = Enum.Font.SourceSans
+    btn.TextSize = 16
+    btn.Parent = scrollFrame
+
+    btn.MouseButton1Click:Connect(function()
+        manualTarget = targetPlayer
+        autoButton.BackgroundColor3 = Color3.fromRGB(40, 100, 140)
+        for _, otherBtn in pairs(playerButtons) do
+            otherBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        end
+        btn.BackgroundColor3 = Color3.fromRGB(40, 140, 60)
+    end)
+
+    playerButtons[targetPlayer] = btn
+end
+
+for _, plr in ipairs(Players:GetPlayers()) do
+    createPlayerButton(plr)
+end
+
+Players.PlayerAdded:Connect(createPlayerButton)
+
+Players.PlayerRemoving:Connect(function(plr)
+    if playerButtons[plr] then
+        playerButtons[plr]:Destroy()
+        playerButtons[plr] = nil
+    end
+    if manualTarget == plr then
+        manualTarget = nil
+    end
+end)
+
+-- ===== พับ/กาง =====
+local function togglePanel()
+    isExpanded = not isExpanded
+    local targetPos = isExpanded
+        and UDim2.new(0, 40, 0.5, 0)
+        or UDim2.new(0, -PANEL_WIDTH - 10, 0.5, 0)
+    toggleBar.Text = isExpanded and "◀" or "▶"
+
+    TweenService:Create(frame, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = targetPos}):Play()
+end
+toggleBar.MouseButton1Click:Connect(togglePanel)
