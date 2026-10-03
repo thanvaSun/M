@@ -1,0 +1,614 @@
+-- =========================================================
+-- Modern Utility Hub v2.1 (With Target Lock Selection)
+-- =========================================================
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local camera = Workspace.CurrentCamera
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Clean up old instance if exists
+if playerGui:FindFirstChild("ModernUtilityHub") then
+	playerGui.ModernUtilityHub:Destroy()
+end
+
+-- =========================================================
+-- SYSTEM SETTINGS & VARIABLES
+-- =========================================================
+local aimSettings = {
+	enabled = false,
+	strength = 0.5, -- Range: 0.1 - 1.0
+	minDist = 5,
+	maxDist = 500,
+	manualTarget = nil -- nil = อัตโนมัติ (ใกล้ที่สุด)
+}
+
+local gfxSettings = {
+	enabled = false,
+	originalLighting = {},
+	originalParts = {},
+	hiddenObjects = {},
+}
+
+-- =========================================================
+-- CORE LOGIC: AIM ASSIST
+-- =========================================================
+local function getClosestTarget()
+	local bestTarget = nil
+	local bestDist = aimSettings.maxDist
+
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= player and plr.Character then
+			local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+			local hum = plr.Character:FindFirstChild("Humanoid")
+			if hrp and hum and hum.Health > 0 then
+				local dist = (hrp.Position - camera.CFrame.Position).Magnitude
+				if dist >= aimSettings.minDist and dist <= bestDist then
+					bestDist = dist
+					bestTarget = hrp
+				end
+			end
+		end
+	end
+	return bestTarget
+end
+
+local function getAimTarget()
+	-- กรณีเลือกผู้เล่นเฉพาะคน
+	if aimSettings.manualTarget and aimSettings.manualTarget.Parent then
+		local targetChar = aimSettings.manualTarget.Character
+		if targetChar then
+			local hrp = targetChar:FindFirstChild("HumanoidRootPart")
+			local hum = targetChar:FindFirstChild("Humanoid")
+			if hrp and hum and hum.Health > 0 then
+				local dist = (hrp.Position - camera.CFrame.Position).Magnitude
+				if dist >= aimSettings.minDist and dist <= aimSettings.maxDist then
+					return hrp
+				end
+			end
+		end
+		return nil
+	end
+
+	-- กรณียังไม่ได้เลือก ให้ใช้อัตโนมัติ (ใกล้ที่สุด)
+	return getClosestTarget()
+end
+
+RunService:BindToRenderStep("AimAssistSystem", Enum.RenderPriority.Camera.Value + 1, function()
+	if not aimSettings.enabled then return end
+	local targetHRP = getAimTarget()
+	if not targetHRP then return end
+
+	local currentLook = camera.CFrame.LookVector
+	local toTarget = (targetHRP.Position - camera.CFrame.Position).Unit
+	local blended = currentLook:Lerp(toTarget, aimSettings.strength)
+
+	camera.CFrame = CFrame.new(camera.CFrame.Position, camera.CFrame.Position + blended)
+end)
+
+-- =========================================================
+-- CORE LOGIC: POTATO GRAPHICS
+-- =========================================================
+local function setPotatoGraphics(enable)
+	if enable then
+		gfxSettings.originalLighting = {
+			GlobalShadows = Lighting.GlobalShadows,
+			FogEnd = Lighting.FogEnd,
+			Brightness = Lighting.Brightness,
+			Technology = Lighting.Technology,
+			Ambient = Lighting.Ambient,
+			OutdoorAmbient = Lighting.OutdoorAmbient,
+		}
+		Lighting.GlobalShadows = false
+		Lighting.FogEnd = 100000
+		Lighting.Technology = Enum.Technology.Compatibility
+		Lighting.Brightness = 1
+		Lighting.Ambient = Color3.fromRGB(150, 150, 150)
+		Lighting.OutdoorAmbient = Color3.fromRGB(150, 150, 150)
+
+		for _, obj in ipairs(Workspace:GetDescendants()) do
+			if obj:IsA("BasePart") then
+				gfxSettings.originalParts[obj] = {
+					Material = obj.Material,
+					Reflectance = obj.Reflectance,
+					CastShadow = obj.CastShadow
+				}
+				obj.Material = Enum.Material.SmoothPlastic
+				obj.Reflectance = 0
+				obj.CastShadow = false
+			elseif obj:IsA("Decal") or obj:IsA("Texture") then
+				gfxSettings.hiddenObjects[obj] = obj.Transparency
+				obj.Transparency = 1
+			elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
+				gfxSettings.hiddenObjects[obj] = obj.Enabled
+				obj.Enabled = false
+			end
+		end
+	else
+		for prop, val in pairs(gfxSettings.originalLighting) do
+			pcall(function() Lighting[prop] = val end)
+		end
+		for obj, data in pairs(gfxSettings.originalParts) do
+			if obj and obj.Parent then
+				obj.Material = data.Material
+				obj.Reflectance = data.Reflectance
+				obj.CastShadow = data.CastShadow
+			end
+		end
+		for obj, val in pairs(gfxSettings.hiddenObjects) do
+			if obj and obj.Parent then
+				if obj:IsA("Decal") or obj:IsA("Texture") then
+					obj.Transparency = val
+				else
+					obj.Enabled = val
+				end
+			end
+		end
+		gfxSettings.originalParts = {}
+		gfxSettings.hiddenObjects = {}
+	end
+end
+
+-- =========================================================
+-- MODERN UI CREATION
+-- =========================================================
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ModernUtilityHub"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+local THEME = {
+	BG = Color3.fromRGB(20, 20, 26),
+	Sidebar = Color3.fromRGB(28, 28, 36),
+	Card = Color3.fromRGB(34, 34, 44),
+	Accent = Color3.fromRGB(0, 170, 255),
+	TextMain = Color3.fromRGB(240, 240, 245),
+	TextSub = Color3.fromRGB(150, 150, 165),
+	Green = Color3.fromRGB(46, 204, 113),
+	Red = Color3.fromRGB(231, 76, 60)
+}
+
+-- Toggle Icon Button
+local toggleIcon = Instance.new("TextButton")
+toggleIcon.Name = "ToggleIcon"
+toggleIcon.Size = UDim2.new(0, 45, 0, 45)
+toggleIcon.Position = UDim2.new(0, 15, 0.5, -22)
+toggleIcon.BackgroundColor3 = THEME.Sidebar
+toggleIcon.Text = "⚡"
+toggleIcon.TextSize = 22
+toggleIcon.TextColor3 = THEME.Accent
+toggleIcon.Parent = screenGui
+
+local iconCorner = Instance.new("UICorner", toggleIcon)
+iconCorner.CornerRadius = UDim.new(0, 12)
+local iconStroke = Instance.new("UIStroke", toggleIcon)
+iconStroke.Color = THEME.Accent
+iconStroke.Thickness = 1.5
+
+-- Main Frame
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 520, 0, 360)
+mainFrame.Position = UDim2.new(0.5, -260, 0.5, -180)
+mainFrame.BackgroundColor3 = THEME.BG
+mainFrame.BorderSizePixel = 0
+mainFrame.ClipsDescendants = true
+mainFrame.Parent = screenGui
+
+local mainCorner = Instance.new("UICorner", mainFrame)
+mainCorner.CornerRadius = UDim.new(0, 12)
+local mainStroke = Instance.new("UIStroke", mainFrame)
+mainStroke.Color = Color3.fromRGB(45, 45, 58)
+
+toggleIcon.MouseButton1Click:Connect(function()
+	mainFrame.Visible = not mainFrame.Visible
+end)
+
+-- Top Bar (Draggable)
+local topBar = Instance.new("Frame")
+topBar.Size = UDim2.new(1, 0, 0, 40)
+topBar.BackgroundColor3 = THEME.Sidebar
+topBar.BorderSizePixel = 0
+topBar.Parent = mainFrame
+
+local titleText = Instance.new("TextLabel")
+titleText.Size = UDim2.new(1, -50, 1, 0)
+titleText.Position = UDim2.new(0, 15, 0, 0)
+titleText.BackgroundTransparency = 1
+titleText.Text = "⚡ UTILITY HUB v2.1"
+titleText.TextColor3 = THEME.TextMain
+titleText.Font = Enum.Font.GothamBold
+titleText.TextSize = 14
+titleText.TextXAlignment = Enum.TextXAlignment.Left
+titleText.Parent = topBar
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 30, 0, 30)
+closeBtn.Position = UDim2.new(1, -35, 0, 5)
+closeBtn.BackgroundTransparency = 1
+closeBtn.Text = "✕"
+closeBtn.TextColor3 = THEME.TextSub
+closeBtn.TextSize = 16
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.Parent = topBar
+
+closeBtn.MouseButton1Click:Connect(function()
+	mainFrame.Visible = false
+end)
+
+-- Dragging Logic
+local dragging, dragStart, startPos
+topBar.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStart = input.Position
+		startPos = mainFrame.Position
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+		local delta = input.Position - dragStart
+		mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = false
+	end
+end)
+
+-- Sidebar
+local sidebar = Instance.new("Frame")
+sidebar.Size = UDim2.new(0, 130, 1, -40)
+sidebar.Position = UDim2.new(0, 0, 0, 40)
+sidebar.BackgroundColor3 = THEME.Sidebar
+sidebar.BorderSizePixel = 0
+sidebar.Parent = mainFrame
+
+local tabLayout = Instance.new("UIListLayout", sidebar)
+tabLayout.Padding = UDim.new(0, 5)
+tabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+local sidebarPadding = Instance.new("UIPadding", sidebar)
+sidebarPadding.PaddingTop = UDim.new(0, 10)
+
+-- Pages Container
+local pagesFolder = Instance.new("Frame")
+pagesFolder.Size = UDim2.new(1, -130, 1, -40)
+pagesFolder.Position = UDim2.new(0, 130, 0, 40)
+pagesFolder.BackgroundTransparency = 1
+pagesFolder.Parent = mainFrame
+
+local function createTab(name, icon)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, 115, 0, 36)
+	btn.BackgroundColor3 = THEME.Card
+	btn.BackgroundTransparency = 1
+	btn.Text = "  " .. icon .. "  " .. name
+	btn.TextColor3 = THEME.TextSub
+	btn.Font = Enum.Font.GothamMedium
+	btn.TextSize = 13
+	btn.TextXAlignment = Enum.TextXAlignment.Left
+	btn.Parent = sidebar
+
+	local btnCorner = Instance.new("UICorner", btn)
+	btnCorner.CornerRadius = UDim.new(0, 8)
+
+	local page = Instance.new("ScrollingFrame")
+	page.Size = UDim2.new(1, 0, 1, 0)
+	page.BackgroundTransparency = 1
+	page.Visible = false
+	page.ScrollBarThickness = 3
+	page.ScrollBarImageColor3 = THEME.Accent
+	page.Parent = pagesFolder
+
+	local pageLayout = Instance.new("UIListLayout", page)
+	pageLayout.Padding = UDim.new(0, 10)
+	pageLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+	local pagePadding = Instance.new("UIPadding", page)
+	pagePadding.PaddingTop = UDim.new(0, 10)
+	pagePadding.PaddingBottom = UDim.new(0, 10)
+
+	btn.MouseButton1Click:Connect(function()
+		for _, child in ipairs(pagesFolder:GetChildren()) do
+			if child:IsA("ScrollingFrame") then child.Visible = false end
+		end
+		for _, child in ipairs(sidebar:GetChildren()) do
+			if child:IsA("TextButton") then
+				child.BackgroundTransparency = 1
+				child.TextColor3 = THEME.TextSub
+			end
+		end
+		page.Visible = true
+		btn.BackgroundTransparency = 0
+		btn.TextColor3 = THEME.Accent
+	end)
+
+	return page, btn
+end
+
+-- Component Helpers
+local function createToggle(parent, titleText, defaultState, callback)
+	local container = Instance.new("Frame")
+	container.Size = UDim2.new(0, 360, 0, 45)
+	container.BackgroundColor3 = THEME.Card
+	container.Parent = parent
+
+	local cCorner = Instance.new("UICorner", container)
+	cCorner.CornerRadius = UDim.new(0, 8)
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1, -70, 1, 0)
+	lbl.Position = UDim2.new(0, 15, 0, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = titleText
+	lbl.TextColor3 = THEME.TextMain
+	lbl.Font = Enum.Font.GothamMedium
+	lbl.TextSize = 13
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.Parent = container
+
+	local toggleBtn = Instance.new("TextButton")
+	toggleBtn.Size = UDim2.new(0, 50, 0, 25)
+	toggleBtn.Position = UDim2.new(1, -60, 0.5, -12)
+	toggleBtn.BackgroundColor3 = defaultState and THEME.Green or Color3.fromRGB(60, 60, 70)
+	toggleBtn.Text = defaultState and "ON" or "OFF"
+	toggleBtn.TextColor3 = THEME.TextMain
+	toggleBtn.Font = Enum.Font.GothamBold
+	toggleBtn.TextSize = 11
+	toggleBtn.Parent = container
+
+	local tCorner = Instance.new("UICorner", toggleBtn)
+	tCorner.CornerRadius = UDim.new(0, 6)
+
+	local state = defaultState
+	toggleBtn.MouseButton1Click:Connect(function()
+		state = not state
+		toggleBtn.BackgroundColor3 = state and THEME.Green or Color3.fromRGB(60, 60, 70)
+		toggleBtn.Text = state and "ON" or "OFF"
+		callback(state)
+	end)
+end
+
+local function createSlider(parent, titleText, min, max, defaultVal, callback)
+	local container = Instance.new("Frame")
+	container.Size = UDim2.new(0, 360, 0, 55)
+	container.BackgroundColor3 = THEME.Card
+	container.Parent = parent
+
+	local cCorner = Instance.new("UICorner", container)
+	cCorner.CornerRadius = UDim.new(0, 8)
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1, -70, 0, 25)
+	lbl.Position = UDim2.new(0, 15, 0, 5)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = titleText
+	lbl.TextColor3 = THEME.TextMain
+	lbl.Font = Enum.Font.GothamMedium
+	lbl.TextSize = 13
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.Parent = container
+
+	local valLbl = Instance.new("TextLabel")
+	valLbl.Size = UDim2.new(0, 50, 0, 25)
+	valLbl.Position = UDim2.new(1, -60, 0, 5)
+	valLbl.BackgroundTransparency = 1
+	valLbl.Text = tostring(defaultVal)
+	valLbl.TextColor3 = THEME.Accent
+	valLbl.Font = Enum.Font.GothamBold
+	valLbl.TextSize = 13
+	valLbl.TextXAlignment = Enum.TextXAlignment.Right
+	valLbl.Parent = container
+
+	local sliderBar = Instance.new("Frame")
+	sliderBar.Size = UDim2.new(1, -30, 0, 6)
+	sliderBar.Position = UDim2.new(0, 15, 0, 36)
+	sliderBar.BackgroundColor3 = Color3.fromRGB(50, 50, 65)
+	sliderBar.Parent = container
+
+	local barCorner = Instance.new("UICorner", sliderBar)
+	barCorner.CornerRadius = UDim.new(1, 0)
+
+	local fillBar = Instance.new("Frame")
+	local initRatio = math.clamp((defaultVal - min) / (max - min), 0, 1)
+	fillBar.Size = UDim2.new(initRatio, 0, 1, 0)
+	fillBar.BackgroundColor3 = THEME.Accent
+	fillBar.Parent = sliderBar
+
+	local fillCorner = Instance.new("UICorner", fillBar)
+	fillCorner.CornerRadius = UDim.new(1, 0)
+
+	local sliding = false
+	local function updateSlider(input)
+		local posX = input.Position.X - sliderBar.AbsolutePosition.X
+		local ratio = math.clamp(posX / sliderBar.AbsoluteSize.X, 0, 1)
+		fillBar.Size = UDim2.new(ratio, 0, 1, 0)
+		local value = math.floor((min + (max - min) * ratio) * 10) / 10
+		valLbl.Text = tostring(value)
+		callback(value)
+	end
+
+	sliderBar.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			sliding = true
+			updateSlider(input)
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if sliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			updateSlider(input)
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			sliding = false
+		end
+	end)
+end
+
+-- =========================================================
+-- CREATE PAGES CONTENT
+-- =========================================================
+
+-- 1. Aim Assist Page
+local aimPage, aimTab = createTab("Aim Assist", "🎯")
+
+createToggle(aimPage, "เปิดใช้งาน Aim Assist", aimSettings.enabled, function(val)
+	aimSettings.enabled = val
+end)
+
+createSlider(aimPage, "ความแรงการดึง (Strength)", 0.1, 1.0, aimSettings.strength, function(val)
+	aimSettings.strength = val
+end)
+
+createSlider(aimPage, "ระยะล็อกขั้นต่ำ (Min Distance)", 0, 50, aimSettings.minDist, function(val)
+	aimSettings.minDist = val
+end)
+
+createSlider(aimPage, "ระยะล็อกสูงสุด (Max Distance)", 50, 1000, aimSettings.maxDist, function(val)
+	aimSettings.maxDist = val
+end)
+
+-- --- ส่วนเลือกผู้เล่นเพื่อล็อกเป้า (Target Selector) ---
+local targetSection = Instance.new("Frame")
+targetSection.Size = UDim2.new(0, 360, 0, 160)
+targetSection.BackgroundColor3 = THEME.Card
+targetSection.Parent = aimPage
+
+local tsCorner = Instance.new("UICorner", targetSection)
+tsCorner.CornerRadius = UDim.new(0, 8)
+
+local targetTitle = Instance.new("TextLabel")
+targetTitle.Size = UDim2.new(1, -20, 0, 25)
+targetTitle.Position = UDim2.new(0, 10, 0, 5)
+targetTitle.BackgroundTransparency = 1
+targetTitle.Text = "🎯 เป้าหมาย: อัตโนมัติ (คนที่ใกล้ที่สุด)"
+targetTitle.TextColor3 = THEME.Accent
+targetTitle.Font = Enum.Font.GothamBold
+targetTitle.TextSize = 12
+targetTitle.TextXAlignment = Enum.TextXAlignment.Left
+targetTitle.Parent = targetSection
+
+local resetTargetBtn = Instance.new("TextButton")
+resetTargetBtn.Size = UDim2.new(0, 130, 0, 22)
+resetTargetBtn.Position = UDim2.new(1, -140, 0, 6)
+resetTargetBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 75)
+resetTargetBtn.Text = "🔄 ล็อกใกล้ที่สุด"
+resetTargetBtn.TextColor3 = THEME.TextMain
+resetTargetBtn.Font = Enum.Font.GothamMedium
+resetTargetBtn.TextSize = 11
+resetTargetBtn.Parent = targetSection
+
+local rtCorner = Instance.new("UICorner", resetTargetBtn)
+rtCorner.CornerRadius = UDim.new(0, 4)
+
+local targetScroll = Instance.new("ScrollingFrame")
+targetScroll.Size = UDim2.new(1, -20, 1, -40)
+targetScroll.Position = UDim2.new(0, 10, 0, 32)
+targetScroll.BackgroundTransparency = 1
+targetScroll.ScrollBarThickness = 3
+targetScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+targetScroll.Parent = targetSection
+
+local targetGrid = Instance.new("UIGridLayout", targetScroll)
+targetGrid.CellSize = UDim2.new(0, 160, 0, 30)
+targetGrid.CellPadding = UDim2.new(0, 8, 0, 8)
+
+local function refreshAimTargetList()
+	for _, child in ipairs(targetScroll:GetChildren()) do
+		if child:IsA("TextButton") then child:Destroy() end
+	end
+
+	for _, otherPlr in ipairs(Players:GetPlayers()) do
+		if otherPlr ~= player then
+			local btn = Instance.new("TextButton")
+			btn.BackgroundColor3 = (aimSettings.manualTarget == otherPlr) and THEME.Accent or Color3.fromRGB(48, 48, 60)
+			btn.Text = " 👤 " .. otherPlr.Name
+			btn.TextColor3 = THEME.TextMain
+			btn.Font = Enum.Font.Gotham
+			btn.TextSize = 11
+			btn.TextXAlignment = Enum.TextXAlignment.Left
+			btn.Parent = targetScroll
+
+			local corner = Instance.new("UICorner", btn)
+			corner.CornerRadius = UDim.new(0, 6)
+
+			btn.MouseButton1Click:Connect(function()
+				aimSettings.manualTarget = otherPlr
+				targetTitle.Text = "🎯 เป้าหมาย: " .. otherPlr.Name
+				refreshAimTargetList()
+			end)
+		end
+	end
+end
+
+resetTargetBtn.MouseButton1Click:Connect(function()
+	aimSettings.manualTarget = nil
+	targetTitle.Text = "🎯 เป้าหมาย: อัตโนมัติ (คนที่ใกล้ที่สุด)"
+	refreshAimTargetList()
+end)
+
+-- 2. Teleport Page
+local tpPage, tpTab = createTab("Teleport", "👥")
+
+local tpContainer = Instance.new("Frame")
+tpContainer.Size = UDim2.new(0, 360, 0, 240)
+tpContainer.BackgroundTransparency = 1
+tpContainer.Parent = tpPage
+
+local tpScroll = Instance.new("ScrollingFrame")
+tpScroll.Size = UDim2.new(1, 0, 1, 0)
+tpScroll.BackgroundTransparency = 1
+tpScroll.ScrollBarThickness = 3
+tpScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+tpScroll.Parent = tpContainer
+
+local grid = Instance.new("UIGridLayout", tpScroll)
+grid.CellSize = UDim2.new(0, 170, 0, 38)
+grid.CellPadding = UDim2.new(0, 10, 0, 10)
+
+local function refreshTeleportList()
+	for _, child in ipairs(tpScroll:GetChildren()) do
+		if child:IsA("TextButton") then child:Destroy() end
+	end
+
+	for _, otherPlr in ipairs(Players:GetPlayers()) do
+		if otherPlr ~= player then
+			local pBtn = Instance.new("TextButton")
+			pBtn.BackgroundColor3 = THEME.Card
+			pBtn.Text = "  👤 " .. otherPlr.Name
+			pBtn.TextColor3 = THEME.TextMain
+			pBtn.Font = Enum.Font.Gotham
+			pBtn.TextSize = 12
+			pBtn.TextXAlignment = Enum.TextXAlignment.Left
+			pBtn.Parent = tpScroll
+
+			local corner = Instance.new("UICorner", pBtn)
+			corner.CornerRadius = UDim.new(0, 6)
+
+			pBtn.MouseButton1Click:Connect(function()
+				if player.Character and otherPlr.Character then
+					local myRoot = player.Character:FindFirstChild("HumanoidRootPart")
+					local targetRoot = otherPlr.Character:FindFirstChild("HumanoidRootPart")
+					if myRoot and targetRoot then
+						myRoot.CFrame = targetRoot.CFrame * CFrame.new(3, 0, 0)
+					end
+				end
+			end)
+		end
+	end
+end
+
+-- Refresh functions 
