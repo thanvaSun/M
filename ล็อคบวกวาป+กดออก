@@ -1,0 +1,286 @@
+loadstring([[
+-- Rayfield UI Library Loader
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+-- Services & Variables
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local camera = Workspace.CurrentCamera
+
+local aimlockEnabled = false
+local autoWarpEnabled = false
+local selectedTargetOption = "[คนใกล้ที่สุด / Closest]"
+
+-- =========================================================
+-- 1. LEAVE MAP MOBILE BUTTON (ปุ่มกดออกจากแมพ 🚪 รีเซ็ตใน 10 วินาที)
+-- =========================================================
+if playerGui:FindFirstChild("LeaveMapGui") then
+    playerGui.LeaveMapGui:Destroy()
+end
+
+local leaveGui = Instance.new("ScreenGui")
+leaveGui.Name = "LeaveMapGui"
+leaveGui.ResetOnSpawn = false
+leaveGui.Parent = playerGui
+
+local leaveBtn = Instance.new("TextButton")
+leaveBtn.Name = "LeaveButton"
+leaveBtn.Size = UDim2.new(0, 50, 0, 50)
+leaveBtn.Position = UDim2.new(0.85, -25, 0.6, 0)
+leaveBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+leaveBtn.Text = "🚪"
+leaveBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+leaveBtn.Font = Enum.Font.GothamBold
+leaveBtn.TextSize = 16
+leaveBtn.Parent = leaveGui
+
+Instance.new("UICorner", leaveBtn).CornerRadius = UDim.new(1, 0)
+local leaveStroke = Instance.new("UIStroke", leaveBtn)
+leaveStroke.Color = Color3.fromRGB(255, 255, 255)
+leaveStroke.Thickness = 2
+
+-- Advanced Drag & 3-Click Protection Logic (10s Timeout)
+local dragging = false
+local dragStart, startPos
+local startInputPos = Vector2.new(0, 0)
+local dragDistance = 0
+
+local clickCount = 0
+local lastClickTime = 0
+
+leaveBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = leaveBtn.Position
+        startInputPos = Vector2.new(input.Position.X, input.Position.Y)
+        dragDistance = 0
+    end
+end)
+
+leaveBtn.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+        local delta = input.Position - dragStart
+        dragDistance = (Vector2.new(input.Position.X, input.Position.Y) - startInputPos).Magnitude
+        leaveBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+leaveBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+        
+        -- ถ้าระยะการลากน้อยกว่า 10 พิกเซล จะถือว่าเป็นการ "กด" ไม่ใช่การลากเคลื่อนย้าย
+        if dragDistance < 10 then
+            local now = tick()
+            -- ถ้าเกิน 10 วินาที จะรีเซ็ทจำนวนครั้งที่เคยกดไว้
+            if now - lastClickTime > 10 then
+                clickCount = 0
+            end
+            lastClickTime = now
+            clickCount = clickCount + 1
+
+            if clickCount < 3 then
+                leaveBtn.Text = "🚪 (" .. clickCount .. "/3)"
+                Rayfield:Notify({
+                    Title = "🚪 ออกจากแมพ",
+                    Content = "กดอีก " .. (3 - clickCount) .. " ครั้งเพื่อออกจากแมพ (รีเซ็ตใน 10 วิ)",
+                    Duration = 2,
+                    Image = 4483362458,
+                })
+                
+                -- หน่วงเวลา 10 วินาที ถ้านานเกินไปจะรีเซ็ตกลับเป็นปกติ
+                task.delay(10, function()
+                    if tick() - lastClickTime >= 10 then
+                        clickCount = 0
+                        leaveBtn.Text = "🚪"
+                    end
+                end)
+            else
+                player:Kick("ออกจากแมพเรียบร้อยแล้ว")
+            end
+        end
+    end
+end)
+
+-- =========================================================
+-- 2. RAYFIELD WINDOW SETUP
+-- =========================================================
+local Window = Rayfield:CreateWindow({
+   Name = "Rayfield Interface",
+   LoadingTitle = "กำลังโหลด...",
+   LoadingSubtitle = "ระบบล็อคเป้า & ปุ่มออกจากแมพ",
+   ConfigurationSaving = { Enabled = false },
+   Discord = { Enabled = false },
+   KeySystem = false
+})
+
+local MainTab = Window:CreateTab("Combat & Target", 4483362458)
+
+local targetLabel = MainTab:CreateLabel("🎯 เป้าหมาย: ไม่พบผู้เล่นใกล้เคียง")
+
+local function getPlayerNames()
+    local list = {"[คนใกล้ที่สุด / Closest]"}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player then
+            table.insert(list, plr.DisplayName .. " (@" .. plr.Name .. ")")
+        end
+    end
+    return list
+end
+
+local PlayerDropdown = MainTab:CreateDropdown({
+   Name = "เลือกคนที่จะล็อค / วาร์ป",
+   Options = getPlayerNames(),
+   CurrentOption = {"[คนใกล้ที่สุด / Closest]"},
+   MultipleOptions = false,
+   Flag = "TargetDropdown",
+   Callback = function(Option)
+       if type(Option) == "table" then
+           selectedTargetOption = Option[1] or "[คนใกล้ที่สุด / Closest]"
+       else
+           selectedTargetOption = Option
+       end
+   end,
+})
+
+MainTab:CreateButton({
+   Name = "🔄 อัปเดตรายชื่อคนในเซิร์ฟ",
+   Callback = function()
+       PlayerDropdown:Refresh(getPlayerNames())
+   end,
+})
+
+MainTab:CreateToggle({
+   Name = "Aimlock (ล็อคกล้องหาเป้าหมาย)",
+   CurrentValue = false,
+   Flag = "AimlockToggle",
+   Callback = function(Value)
+       aimlockEnabled = Value
+   end,
+})
+
+local function getCurrentTargetChar()
+    if selectedTargetOption == "[คนใกล้ที่สุด / Closest]" or not selectedTargetOption then
+        local closest = nil
+        local shortestDist = math.huge
+        if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then return nil, 0 end
+        local myPos = player.Character.HumanoidRootPart.Position
+
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChild("Humanoid") then
+                if plr.Character.Humanoid.Health > 0 then
+                    local dist = (plr.Character.HumanoidRootPart.Position - myPos).Magnitude
+                    if dist < shortestDist then
+                        shortestDist = dist
+                        closest = plr.Character
+                    end
+                end
+            end
+        end
+        return closest, shortestDist
+    else
+        for _, plr in ipairs(Players:GetPlayers()) do
+            local fullName = plr.DisplayName .. " (@" .. plr.Name .. ")"
+            if fullName == selectedTargetOption or plr.Name == selectedTargetOption then
+                if plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChild("Humanoid") and plr.Character.Humanoid.Health > 0 then
+                    local dist = 0
+                    if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                        dist = (plr.Character.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).Magnitude
+                    end
+                    return plr.Character, dist
+                end
+            end
+        end
+    end
+    return nil, 0
+end
+
+MainTab:CreateButton({
+   Name = "Warp to Target (วาร์ปไปหาเป้าหมาย 1 ครั้ง)",
+   Callback = function()
+       local target = getCurrentTargetChar()
+       if target and target:FindFirstChild("HumanoidRootPart") and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+           player.Character.HumanoidRootPart.CFrame = target.HumanoidRootPart.CFrame * CFrame.new(0, 0, 3)
+       else
+           Rayfield:Notify({
+               Title = "Warp Target",
+               Content = "ไม่พบเป้าหมายที่เลือก!",
+               Duration = 2,
+               Image = 4483362458,
+           })
+       end
+   end,
+})
+
+MainTab:CreateToggle({
+   Name = "Auto Warp / Stick (วาร์ปสิงติดหลังออโต้)",
+   CurrentValue = false,
+   Flag = "AutoWarpToggle",
+   Callback = function(Value)
+       autoWarpEnabled = Value
+   end,
+})
+
+MainTab:CreateButton({
+   Name = "🚪 ออกจากแมพ (Leave Game)",
+   Callback = function()
+       player:Kick("ออกจากแมพเรียบร้อยแล้ว")
+   end,
+})
+
+-- TAB 2: FPS Booster
+local FPSTab = Window:CreateTab("FPS Boost", 4483362458)
+
+FPSTab:CreateButton({
+   Name = "Boost FPS (เพิ่ม FPS / ลดกราฟิก)",
+   Callback = function()
+       Lighting.GlobalShadows = false
+       Lighting.FogEnd = 9e9
+       for _, obj in ipairs(Workspace:GetDescendants()) do
+           if obj:IsA("BasePart") then
+               obj.Material = Enum.Material.SmoothPlastic
+               obj.Reflectance = 0
+           elseif obj:IsA("Decal") or obj:IsA("Texture") then
+               obj:Destroy()
+           elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") then
+               obj.Enabled = false
+           end
+       end
+       Rayfield:Notify({
+           Title = "FPS Booster",
+           Content = "เพิ่ม FPS เรียบร้อยแล้ว!",
+           Duration = 2,
+           Image = 4483362458,
+       })
+   end,
+})
+
+-- =========================================================
+-- 3. MAIN RENDER LOOP
+-- =========================================================
+RunService.RenderStepped:Connect(function()
+    local targetChar, targetDist = getCurrentTargetChar()
+    
+    if targetChar then
+        local targetPlr = Players:GetPlayerFromCharacter(targetChar)
+        local displayName = targetPlr and (targetPlr.DisplayName .. " (@" .. targetPlr.Name .. ")") or targetChar.Name
+        targetLabel:Set("🎯 เป้าหมาย: " .. displayName .. " [" .. math.floor(targetDist) .. "m]")
+
+        if aimlockEnabled and targetChar:FindFirstChild("HumanoidRootPart") then
+            camera.CFrame = CFrame.new(camera.CFrame.Position, targetChar.HumanoidRootPart.Position)
+        end
+
+        if autoWarpEnabled and targetChar:FindFirstChild("HumanoidRootPart") and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            player.Character.HumanoidRootPart.CFrame = targetChar.HumanoidRootPart.CFrame * CFrame.new(0, 0, 3)
+        end
+    else
+        targetLabel:Set("🎯 เป้าหมาย: ไม่พบผู้เล่นใกล้เคียง")
+    end
+end)
+]])()
